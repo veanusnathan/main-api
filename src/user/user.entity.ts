@@ -1,4 +1,4 @@
-import { Entity, ManyToMany, PrimaryKey, Property } from '@mikro-orm/core';
+import { Collection, Entity, ManyToMany, PrimaryKey, Property } from '@mikro-orm/core';
 import { Role } from '../role/role.entity';
 
 @Entity({
@@ -18,7 +18,7 @@ export class User {
   passwordHash: string;
 
   @ManyToMany(() => Role, (r) => r.users, { owner: true, pivotTable: 'user_roles' })
-  roles = new Array<Role>();
+  roles = new Collection<Role>(this);
 
   @Property({ onCreate: () => new Date(), fieldName: 'created_at' })
   createdAt: Date;

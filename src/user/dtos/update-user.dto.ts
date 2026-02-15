@@ -1,4 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import { IsArray, IsEmail, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class UpdateUserDto {
@@ -22,6 +23,7 @@ export class UpdateUserDto {
   @ApiPropertyOptional({ example: [1, 2], description: 'Role IDs to assign' })
   @IsOptional()
   @IsArray()
+  @Type(() => Number)
   @IsInt({ each: true })
   roleIds?: number[];
 }

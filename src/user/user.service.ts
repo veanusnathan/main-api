@@ -52,17 +52,19 @@ export class UserService {
       throw new ConflictException({ errors: ['Username already taken'] });
     }
     const now = new Date();
-    const roles = dto.roleIds?.length
+    const roleEntities = dto.roleIds?.length
       ? await this.roleRepo.find({ id: { $in: dto.roleIds } })
       : [];
     const user = this.userRepo.create({
       username: dto.username.toLowerCase(),
       email: dto.email.toLowerCase(),
       passwordHash: await bcrypt.hash(dto.password, 10),
-      roles,
       createdAt: now,
       updatedAt: now,
     });
+    for (const role of roleEntities) {
+      user.roles.add(role);
+    }
     await this.userRepo.persistAndFlush(user);
     const created = await this.userRepo.findOne({ id: user.id }, { populate: ['roles'] });
     if (!created) throw new NotFoundException('User not found after create');
@@ -84,10 +86,14 @@ export class UserService {
     if (dto.email != null) user.email = dto.email.toLowerCase();
     if (dto.password != null) user.passwordHash = await bcrypt.hash(dto.password, 10);
     if (dto.roleIds !== undefined) {
-      (user as { roles: Role[] }).roles =
+      const roleEntities =
         dto.roleIds.length > 0
           ? await this.roleRepo.find({ id: { $in: dto.roleIds } })
           : [];
+      user.roles.removeAll();
+      for (const role of roleEntities) {
+        user.roles.add(role);
+      }
     }
     await this.userRepo.flush();
     const updated = await this.userRepo.findOne({ id }, { populate: ['roles'] });
