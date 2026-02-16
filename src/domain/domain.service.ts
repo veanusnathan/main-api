@@ -2,8 +2,10 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { resolve as dnsResolve } from 'node:dns/promises';
 import { InjectRepository } from '@mikro-orm/nestjs';
 import { EntityRepository, wrap } from '@mikro-orm/core';
+import type { EntityManager } from '@mikro-orm/postgresql';
 import { DomainRepository } from './domain.repository';
 import { Domain } from './domain.entity';
+import { DomainGroup } from './domain-group.entity';
 import { SyncLog, SyncServiceName } from './sync-log.entity';
 import { CpanelData } from '../cpanel/cpanel.entity';
 import { NamecheapService } from './namecheap/namecheap.service';
@@ -67,6 +69,13 @@ export interface DomainResponse {
   nawala: boolean;
   isUsed: boolean;
   category?: string | null;
+  isDefense: boolean;
+  isLinkAlt: boolean;
+  group?: {
+    id: number;
+    name: string;
+    description: string | null;
+  } | null;
   cpanel?: {
     id: number;
     ipServer: string;
@@ -79,13 +88,24 @@ function toResponse(domain: Domain): DomainResponse {
   const nameServers = [domain.nameServer1, domain.nameServer2].filter(
     (s): s is string => s != null && s !== '',
   );
-  
+
+  let groupData = null;
+  if (domain.group) {
+    const g = domain.group;
+    const wrapped = wrap(g);
+    if (wrapped.isInitialized() || (g.id && g.name)) {
+      groupData = {
+        id: g.id,
+        name: g.name,
+        description: g.description ?? null,
+      };
+    }
+  }
+
   // Map cpanel relation if it exists and is loaded
   let cpanelData = null;
   if (domain.cpanel) {
     const cpanel = domain.cpanel;
-    // If populate worked, properties should be accessible directly
-    // Check if it's a reference (not loaded) by checking if properties exist
     const wrapped = wrap(cpanel);
     if (wrapped.isInitialized() || (cpanel.id && cpanel.username && cpanel.ipServer)) {
       cpanelData = {
@@ -96,7 +116,7 @@ function toResponse(domain: Domain): DomainResponse {
       };
     }
   }
-  
+
   return {
     id: String(domain.id),
     name: domain.name,
@@ -114,6 +134,9 @@ function toResponse(domain: Domain): DomainResponse {
     nawala: domain.nawala ?? false,
     isUsed: domain.isUsed ?? false,
     category: domain.category ?? null,
+    isDefense: domain.isDefense ?? false,
+    isLinkAlt: domain.isLinkAlt ?? false,
+    group: groupData,
     cpanel: cpanelData,
   };
 }
@@ -126,6 +149,8 @@ export class DomainService {
     private readonly domainRepo: DomainRepository,
     @InjectRepository(CpanelData)
     private readonly cpanelRepo: EntityRepository<CpanelData>,
+    @InjectRepository(DomainGroup)
+    private readonly groupRepo: EntityRepository<DomainGroup>,
     @InjectRepository(SyncLog)
     private readonly syncLogRepo: EntityRepository<SyncLog>,
     private readonly namecheap: NamecheapService,
@@ -178,6 +203,18 @@ export class DomainService {
     } else if (nawalaFilter === 'notBlocked') {
       where.nawala = false;
     }
+    if (query?.isDefense === true) {
+      where.isDefense = true;
+    }
+    if (query?.isLinkAlt === true) {
+      where.isLinkAlt = true;
+    }
+    if (query?.groupId != null) {
+      where.group = query.groupId;
+    }
+    if (query?.ungroupedOnly === true) {
+      where.group = null;
+    }
 
     const orderDir = sortOrder.toUpperCase() as 'ASC' | 'DESC';
     const orderBy: Record<string, 'ASC' | 'DESC'> =
@@ -197,6 +234,7 @@ export class DomainService {
       orderBy,
       limit,
       offset: (page - 1) * limit,
+      populate: ['group'],
     });
 
     const totalPages = Math.ceil(total / limit);
@@ -256,7 +294,7 @@ export class DomainService {
 
   /** Get one domain by our DB id (backoffice shape) */
   async findOne(id: number): Promise<DomainResponse> {
-    const domain = await this.domainRepo.findOne({ id }, { populate: ['cpanel'] });
+    const domain = await this.domainRepo.findOne({ id }, { populate: ['cpanel', 'group'] });
     if (!domain) {
       throw new NotFoundException(`Domain dengan id ${id} tidak ditemukan`);
     }
@@ -327,6 +365,8 @@ export class DomainService {
           active: !nc.isExpired,
           nawala: false,
           isUsed: false,
+          isDefense: false,
+          isLinkAlt: false,
           description: null,
           createdAt: now,
           updatedAt: now,
@@ -342,9 +382,11 @@ export class DomainService {
   /**
    * Refresh name servers for all domains via DNS lookup (same data as DNS checker).
    * Updates nameServer1 and nameServer2 from live NS records.
+   * When called from scheduler (no request context), pass a forked EntityManager.
    */
-  async refreshNameServers(): Promise<{ updated: number }> {
-    const domains = await this.domainRepo.find({ id: { $gte: 0 } }, { orderBy: { id: 'ASC' } });
+  async refreshNameServers(forkedEm?: EntityManager): Promise<{ updated: number }> {
+    const domainRepo = forkedEm ? forkedEm.getRepository(Domain) : this.domainRepo;
+    const domains = await domainRepo.find({ id: { $gte: 0 } }, { orderBy: { id: 'ASC' } });
     const BATCH = 50;
     let updated = 0;
 
@@ -360,7 +402,7 @@ export class DomainService {
           }
         }),
       );
-      await this.domainRepo.flush();
+      await domainRepo.flush();
       updated += batch.length;
     }
 
@@ -369,20 +411,22 @@ export class DomainService {
 
   /**
    * Refresh name servers via DNS and record timestamp.
-   * Used by the hourly background worker.
+   * Used by the hourly background worker. Runs in a forked EM to avoid global context error.
    */
   async runNameServerRefresh(): Promise<{ updated: number }> {
-    const result = await this.refreshNameServers();
-    await this.recordSync(SyncServiceName.NameServerRefresh);
+    const forkedEm = this.domainRepo.getEntityManager().fork();
+    const result = await this.refreshNameServers(forkedEm);
+    await this.recordSync(SyncServiceName.NameServerRefresh, forkedEm);
     return result;
   }
 
-  private async recordSync(serviceName: SyncServiceName): Promise<void> {
-    const row = this.syncLogRepo.create({
+  private async recordSync(serviceName: SyncServiceName, forkedEm?: EntityManager): Promise<void> {
+    const syncLogRepo = forkedEm ? forkedEm.getRepository(SyncLog) : this.syncLogRepo;
+    const row = syncLogRepo.create({
       serviceName,
       timestamp: new Date(),
     });
-    await this.syncLogRepo.persistAndFlush(row);
+    await syncLogRepo.persistAndFlush(row);
   }
 
   /** Reactivate expired domain via Namecheap API */
@@ -463,7 +507,10 @@ export class DomainService {
       autoRenew: false,
       nawala: false,
       isUsed: dto.isUsed ?? false,
+      isDefense: false,
+      isLinkAlt: false,
       category: dto.category ?? null,
+      group: dto.groupId != null ? this.groupRepo.getReference(dto.groupId) : null,
       createdAt: now,
       updatedAt: now,
     });
@@ -486,6 +533,11 @@ export class DomainService {
     }
     if (dto.isUsed !== undefined) domain.isUsed = dto.isUsed;
     if (dto.category !== undefined) domain.category = dto.category ?? null;
+    if (dto.isDefense !== undefined) domain.isDefense = dto.isDefense;
+    if (dto.isLinkAlt !== undefined) domain.isLinkAlt = dto.isLinkAlt;
+    if (dto.groupId !== undefined) {
+      domain.group = dto.groupId == null ? null : this.groupRepo.getReference(dto.groupId);
+    }
     await this.domainRepo.flush();
     return domain;
   }
@@ -513,9 +565,13 @@ export class DomainService {
    * Refresh nawala (blocked) status by querying Trust Positif.
    * Only domains marked as "used" (isUsed: true) are checked; mark domains as Used in the UI or via bulk upload so they are included.
    * Batch size 50 per request.
+   * Runs in a forked EM when called from scheduler (no request context).
    */
   async refreshNawala(): Promise<{ checked: number; updated: number }> {
-    const usedDomains = await this.domainRepo.find(
+    const forkedEm = this.domainRepo.getEntityManager().fork();
+    const domainRepo = forkedEm.getRepository(Domain);
+
+    const usedDomains = await domainRepo.find(
       { isUsed: true },
       { orderBy: { name: 'ASC' } },
     );
@@ -549,8 +605,8 @@ export class DomainService {
         updated++;
       }
     }
-    await this.domainRepo.flush();
-    await this.recordSync(SyncServiceName.NawalaCheck);
+    await domainRepo.flush();
+    await this.recordSync(SyncServiceName.NawalaCheck, forkedEm);
 
     if (updated === 0 && usedDomains.length > 0) {
       this.logger.log(

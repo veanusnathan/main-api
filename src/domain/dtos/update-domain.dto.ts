@@ -18,10 +18,11 @@ export class UpdateDomainDto {
   @IsDateString()
   expiryDate?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'User notes; use null to clear' })
   @IsOptional()
+  @ValidateIf((_, v) => v != null)
   @IsString()
-  description?: string;
+  description?: string | null;
 
   @ApiPropertyOptional({ description: 'Ganti name server 1' })
   @IsOptional()
@@ -53,4 +54,20 @@ export class UpdateDomainDto {
   @ValidateIf((_, v) => v != null)
   @IsEnum(DomainCategory)
   category?: DomainCategory | null;
+
+  @ApiPropertyOptional({ description: 'Whether domain is defense' })
+  @IsOptional()
+  @IsBoolean()
+  isDefense?: boolean;
+
+  @ApiPropertyOptional({ description: 'Whether domain is link alt' })
+  @IsOptional()
+  @IsBoolean()
+  isLinkAlt?: boolean;
+
+  @ApiPropertyOptional({ description: 'Domain group id; null to unset' })
+  @IsOptional()
+  @ValidateIf((_, v) => v != null)
+  @IsInt()
+  groupId?: number | null;
 }

@@ -19,9 +19,11 @@
     "mikro-orm": "NODE_ENV=development MIKRO_ORM_CLI_USE_TS_NODE=true mikro-orm",
     "cross:start": "cross-env NODE_ENV=development nest start",
     "cross:start:dev": "cross-env NODE_ENV=development nest start --watch",
-    "cross:mikro-orm": "cross-env NODE_ENV=development MIKRO_ORM_CLI_USE_TS_NODE=true mikro-orm"
+    "cross:mikro-orm": "cross-env NODE_ENV=development MIKRO_ORM_CLI_USE_TS_NODE=true mikro-orm",
+    "script:trustpositif": "cross-env NODE_ENV=development ts-node -r tsconfig-paths/register scripts/fetch-trustpositif-data.ts"
   },
   "dependencies": {
+    "axios": "^1.6.0",
     "@mikro-orm/cli": "^5.6.9",
     "@mikro-orm/core": "^5.6.9",
     "@mikro-orm/migrations": "^5.6.9",

@@ -76,6 +76,38 @@ export class GetDomainsDto {
   nawalaFilter?: DomainNawalaFilter;
 
   @ApiPropertyOptional({
+    description: 'When true, return only domains where isDefense is true',
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  isDefense?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'When true, return only domains where isLinkAlt is true',
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  isLinkAlt?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Filter by domain group id',
+  })
+  @IsOptional()
+  @Transform(({ value }) => (value != null && value !== '' ? Number(value) : undefined))
+  @IsInt()
+  groupId?: number;
+
+  @ApiPropertyOptional({
+    description: 'When true, return only domains with no group',
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  ungroupedOnly?: boolean;
+
+  @ApiPropertyOptional({
     description: 'Page number (1-based)',
     minimum: 1,
     default: 1,

@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsDateString, IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsDateString, IsEnum, IsInt, IsOptional, IsString, ValidateIf } from 'class-validator';
 import { DomainCategory } from '../domain.entity';
 
 export class CreateDomainDto {
@@ -44,4 +44,10 @@ export class CreateDomainDto {
   @IsOptional()
   @IsEnum(DomainCategory)
   category?: DomainCategory | null;
+
+  @ApiPropertyOptional({ description: 'Domain group id' })
+  @IsOptional()
+  @ValidateIf((_, v) => v != null)
+  @IsInt()
+  groupId?: number | null;
 }

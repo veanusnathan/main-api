@@ -8,6 +8,7 @@ import {
 } from '@mikro-orm/core';
 import { DomainRepository } from './domain.repository';
 import { CpanelData } from '../cpanel/cpanel.entity';
+import { DomainGroup } from './domain-group.entity';
 
 export enum DomainCategory {
   MS = 'MS',
@@ -110,6 +111,18 @@ export class Domain {
   /** Domain category: MS, WP, LP, RTP, or Other */
   @Enum({ items: () => DomainCategory, nullable: true, default: null })
   category?: DomainCategory | null;
+
+  /** Whether domain is used for defense (e.g. Trust Positif / nawala context) */
+  @Property({ default: false, fieldName: 'is_defense' })
+  isDefense: boolean;
+
+  /** Whether domain is used as link alt */
+  @Property({ default: false, fieldName: 'is_link_alt' })
+  isLinkAlt: boolean;
+
+  /** Group this domain belongs to; null = no group */
+  @ManyToOne(() => DomainGroup, { nullable: true, fieldName: 'group_id', onDelete: 'set null' })
+  group?: DomainGroup | null;
 
   @Property({
     onCreate: () => new Date(),

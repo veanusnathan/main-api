@@ -14,6 +14,12 @@ interface ErrorResponse {
   errors?: string[];
 }
 
+/** API error body: always has errors[] for clients; optional stack for debugging (e.g. in Network tab). */
+interface ApiErrorBody {
+  errors: string[];
+  stack?: string;
+}
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
@@ -25,19 +31,31 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
 
-    let responseBody: { errors: string[] };
+    let responseBody: ApiErrorBody;
     let httpStatus: number;
 
     if (exception instanceof HttpException) {
       httpStatus = exception.getStatus();
       const res = exception.getResponse() as ErrorResponse;
-      const errs = res.errors ?? (res.message ? (typeof res.message === 'string' ? [res.message] : res.message) : ['Unauthorized']);
+      const errs =
+        res.errors ??
+        (res.message
+          ? typeof res.message === 'string'
+            ? [res.message]
+            : res.message
+          : ['Unauthorized']);
       responseBody = { errors: errs };
       this.logger.warn(exception.message);
     } else {
+      const message =
+        exception instanceof Error ? exception.message : String(exception);
+      const stack = exception instanceof Error ? exception.stack : undefined;
       this.logger.error(exception);
       httpStatus = HttpStatus.INTERNAL_SERVER_ERROR;
-      responseBody = { errors: ['internal server error'] };
+      responseBody = {
+        errors: [message],
+        ...(process.env.NODE_ENV !== 'production' && stack && { stack }),
+      };
     }
 
     httpAdapter.reply(response, responseBody, httpStatus);
