@@ -4,12 +4,10 @@ import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dtos/login.dto';
 import { Public } from './decorators/public.decorator';
-import { SkipIpWhitelist } from './decorators/skip-ip-whitelist.decorator';
 
 @ApiTags('Auth')
 @Controller('auth')
 @Public()
-@SkipIpWhitelist()
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 

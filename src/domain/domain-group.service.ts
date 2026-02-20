@@ -57,7 +57,7 @@ export class DomainGroupService {
       throw new NotFoundException(`Group dengan id ${id} tidak ditemukan`);
     }
     if (dto.name !== undefined) group.name = dto.name;
-    if (dto.description !== undefined) group.description = dto.description;
+    if (dto.description !== undefined) group.description = dto.description ?? null;
     await this.groupRepo.flush();
     return toResponse(group);
   }
