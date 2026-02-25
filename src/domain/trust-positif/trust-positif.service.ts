@@ -123,16 +123,35 @@ export class TrustPositifService {
     }
     const iface = process.env.TRUST_POSITIF_VPN_SOURCE_IP?.trim();
     const ifaceArg = iface ? `--interface ${iface}` : '';
-    const prefix = base.replace(/^https:\/\//, '');
     const cookieFile = join(tmpdir(), `trustpositif-cookies-${process.pid}.txt`);
+    const execOpts = { encoding: 'utf-8' as const, maxBuffer: 2 * 1024 * 1024, timeout: 35000 };
+    const curl = process.env.TRUST_POSITIF_CURL_PATH?.trim() || 'curl';
     try {
-      const getCmd = `curl -s -k ${ifaceArg} -H "Host: ${TRUST_POSITIF_HOST}" -c "${cookieFile}" "${base}/"`;
-      const html = execSync(getCmd, { encoding: 'utf-8', maxBuffer: 2 * 1024 * 1024 });
+      const getCmd = `${curl} -s -k --connect-timeout 30 ${ifaceArg} -H "Host: ${TRUST_POSITIF_HOST}" -c "${cookieFile}" "${base}/"`;
+      let html: string;
+      try {
+        html = execSync(getCmd, execOpts);
+      } catch (curlErr: unknown) {
+        const e = curlErr as { status?: number; stderr?: Buffer | string; stdout?: Buffer | string; message?: string };
+        const stderr = e.stderr != null ? String(e.stderr).trim() : '';
+        const stdout = e.stdout != null ? String(e.stdout).trim() : '';
+        const detail = [e.message, stderr, stdout].filter(Boolean).join(' | ');
+        throw new Error(`Trust Positif curl GET failed: ${detail}`);
+      }
       const csrfToken = this.extractCsrfToken(html);
       const name = domains.join('\n');
       const body = `csrf_token=${encodeURIComponent(csrfToken)}&name=${encodeURIComponent(name)}`;
-      const postCmd = `curl -s -k ${ifaceArg} -H "Host: ${TRUST_POSITIF_HOST}" -b "${cookieFile}" -X POST --data-raw ${JSON.stringify(body)} "${base}/Rest_server/getrecordsname_home"`;
-      const jsonOut = execSync(postCmd, { encoding: 'utf-8', maxBuffer: 2 * 1024 * 1024 });
+      const postCmd = `${curl} -s -k --connect-timeout 30 ${ifaceArg} -H "Host: ${TRUST_POSITIF_HOST}" -b "${cookieFile}" -X POST --data-raw ${JSON.stringify(body)} "${base}/Rest_server/getrecordsname_home"`;
+      let jsonOut: string;
+      try {
+        jsonOut = execSync(postCmd, execOpts);
+      } catch (curlErr: unknown) {
+        const e = curlErr as { status?: number; stderr?: Buffer | string; stdout?: Buffer | string; message?: string };
+        const stderr = e.stderr != null ? String(e.stderr).trim() : '';
+        const stdout = e.stdout != null ? String(e.stdout).trim() : '';
+        const detail = [e.message, stderr, stdout].filter(Boolean).join(' | ');
+        throw new Error(`Trust Positif curl POST failed: ${detail}`);
+      }
       const data = JSON.parse(jsonOut) as { values?: Array<Record<string, unknown>> };
       const values = data?.values;
       if (!Array.isArray(values)) {
