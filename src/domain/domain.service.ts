@@ -618,6 +618,65 @@ export class DomainService {
   }
 
   /**
+   * Return used domain names only. For cron script that runs Trust Positif outside the app process.
+   */
+  async getUsedDomainNames(): Promise<string[]> {
+    const used = await this.domainRepo.find(
+      { isUsed: true },
+      { orderBy: { name: 'ASC' }, fields: ['name'] },
+    );
+    return used.map((d) => d.name);
+  }
+
+  /**
+   * Apply Nawala (Trust Positif) results from an external cron script.
+   * Verifies NAWALA_CRON_SECRET. Updates domain.nawala and records sync.
+   */
+  async applyNawalaResultsFromCron(
+    results: Array<{ domain: string; blocked: boolean }>,
+    secret: string,
+  ): Promise<{ checked: number; updated: number }> {
+    const expected = process.env.NAWALA_CRON_SECRET?.trim();
+    if (!expected) {
+      throw new NotFoundException('Nawala cron not configured (NAWALA_CRON_SECRET not set)');
+    }
+    if (secret !== expected) {
+      throw new NotFoundException('Invalid secret');
+    }
+    if (results.length === 0) {
+      return { checked: 0, updated: 0 };
+    }
+
+    const forkedEm = this.domainRepo.getEntityManager().fork();
+    const domainRepo = forkedEm.getRepository(Domain);
+    const resultsMap = new Map<string, boolean>();
+    for (const r of results) {
+      const key = r.domain.toLowerCase().trim();
+      resultsMap.set(key, r.blocked);
+      const withoutWww = key.replace(/^www\./, '');
+      if (withoutWww !== key) resultsMap.set(withoutWww, r.blocked);
+    }
+
+    const usedDomains = await domainRepo.find(
+      { isUsed: true },
+      { orderBy: { name: 'ASC' } },
+    );
+    let updated = 0;
+    for (const domain of usedDomains) {
+      const key = domain.name.toLowerCase().trim();
+      const keyNoWww = key.replace(/^www\./, '');
+      const blocked = resultsMap.get(key) ?? resultsMap.get(keyNoWww);
+      if (blocked !== undefined && domain.nawala !== blocked) {
+        domain.nawala = blocked;
+        updated++;
+      }
+    }
+    await domainRepo.flush();
+    await this.recordSync(SyncServiceName.NawalaCheck, forkedEm);
+    return { checked: usedDomains.length, updated };
+  }
+
+  /**
    * Mark domains as used from a .txt file (one domain per line).
    * Parses by line break, matches domain names (case-insensitive), sets isUsed = true.
    */
