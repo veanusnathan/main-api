@@ -578,7 +578,7 @@ export class DomainService {
 
   /** Run the nawala cron script and return { checked, updated }. Script must echo NAWALA_APPLY_RESULT=<json> on success. */
   private runNawalaCronScript(scriptPath: string): { checked: number; updated: number } {
-    const apiUrl = process.env.NAWALA_CRON_API_URL?.trim() || 'http://127.0.0.1';
+    const apiUrl = process.env.NAWALA_CRON_API_URL?.trim() || 'http://127.0.0.1:3000';
     const result = spawnSync(scriptPath, [], {
       encoding: 'utf-8',
       env: { ...process.env, NAWALA_CRON_API_URL: apiUrl } as NodeJS.ProcessEnv,
