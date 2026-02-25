@@ -5,7 +5,6 @@ import {
   Controller,
   Delete,
   Get,
-  NotFoundException,
   Param,
   ParseIntPipe,
   Patch,
@@ -26,7 +25,6 @@ import { SetNameServersDto } from './dtos/set-name-servers.dto';
 import { RenewDomainDto } from './dtos/renew-domain.dto';
 import { NamecheapConfigDto } from './dtos/namecheap-config.dto';
 import { GetDomainsDto } from './dtos/get-domains.dto';
-import { NawalaApplyDto } from './dtos/nawala-apply.dto';
 
 @ApiTags('Pendataan Domain')
 @Controller('domains')
@@ -109,30 +107,6 @@ export class DomainController {
         `Nawala check failed: ${msg}. The Trust Positif site may be unreachable or blocking requests (e.g. geo-restriction).`,
       );
     }
-  }
-
-  @Get('nawala-cron')
-  @ApiOperation({
-    summary: 'Get used domain names for Nawala cron script',
-    description:
-      'Returns used domain names when ?secret= matches NAWALA_CRON_SECRET. For cron script that runs Trust Positif outside the app (e.g. when in-app curl fails). Returns 404 if not configured or invalid secret.',
-  })
-  async getNawalaCronDomains(@Query('secret') secret: string | undefined) {
-    const expected = process.env.NAWALA_CRON_SECRET?.trim();
-    if (!expected) throw new NotFoundException('Not found');
-    if (!secret || secret !== expected) throw new NotFoundException('Not found');
-    const domains = await this.domainService.getUsedDomainNames();
-    return { domains };
-  }
-
-  @Post('nawala-apply')
-  @ApiOperation({
-    summary: 'Apply Nawala results from cron script',
-    description:
-      'Accepts Trust Positif results from an external script. Body: { secret, results: [{ domain, blocked }] }. Secret must match NAWALA_CRON_SECRET.',
-  })
-  async applyNawalaFromCron(@Body() dto: NawalaApplyDto) {
-    return this.domainService.applyNawalaResultsFromCron(dto.results, dto.secret);
   }
 
   @Get('namecheap/list')
