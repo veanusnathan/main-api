@@ -45,19 +45,22 @@ export class TrustPositifService {
     const vpnSource = process.env.TRUST_POSITIF_VPN_SOURCE_IP?.trim();
     this._trustPositifAgent = new https.Agent({
       keepAlive: false,
-      createConnection(options: tls.ConnectionOptions, callback: (err: Error | null, stream?: tls.TLSSocket) => void) {
-        const tlsOpts: tls.ConnectionOptions = {
+      createConnection(
+        options: tls.ConnectionOptions,
+        callback: (err: Error | null, stream?: tls.TLSSocket) => void,
+      ) {
+        const tlsOpts = {
           host: options.host ?? options.servername,
           port: options.port ?? 443,
           servername: TRUST_POSITIF_HOST,
           family: 4,
           ...(vpnSource && { localAddress: vpnSource }),
         };
-        const sock = tls.connect(tlsOpts);
+        const sock = tls.connect(tlsOpts as tls.ConnectionOptions);
         sock.once('secure', () => callback(null, sock));
         sock.once('error', (e) => callback(e));
       },
-    });
+    } as https.AgentOptions);
     return this._trustPositifAgent;
   }
 
