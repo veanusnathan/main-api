@@ -1,9 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import * as https from 'node:https';
 
 const TRUST_POSITIF_HOST = 'trustpositif.komdigi.go.id';
 const TRUST_POSITIF_BASE_DEFAULT = `https://${TRUST_POSITIF_HOST}`;
+
+/** HTTPS agent that uses TRUST_POSITIF_HOST for SNI when connecting by IP so certificate verification passes. */
+const trustPositifHttpsAgent = new https.Agent({
+  servername: TRUST_POSITIF_HOST,
+});
 
 export interface TrustPositifResult {
   domain: string;
@@ -30,7 +36,13 @@ export class TrustPositifService {
     return TRUST_POSITIF_BASE_DEFAULT;
   }
 
-  /** Request headers: add Host when using an IP base URL so TLS SNI and virtual host work. */
+  /** When connecting by IP, use this agent so TLS SNI and cert verification use the hostname, not the IP. */
+  private get httpsAgent(): https.Agent | undefined {
+    const base = this.baseUrl;
+    return base.startsWith('https://') && !base.includes(TRUST_POSITIF_HOST) ? trustPositifHttpsAgent : undefined;
+  }
+
+  /** Request headers: add Host when using an IP base URL so virtual host works. */
   private requestHeaders(extra?: Record<string, string>): Record<string, string> {
     const base = this.baseUrl;
     const out: Record<string, string> = { ...this.headers };
@@ -90,6 +102,7 @@ export class TrustPositifService {
           responseType: 'text',
           timeout: 30000,
           maxRedirects: 5,
+          httpsAgent: this.httpsAgent,
         }),
       );
     } catch (err) {
@@ -131,6 +144,7 @@ export class TrustPositifService {
             responseType: 'json',
             timeout: 30000,
             validateStatus: () => true,
+            httpsAgent: this.httpsAgent,
           },
         ),
       );
