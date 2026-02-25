@@ -31,6 +31,8 @@ fi
 
 if ! echo "$DOMAINS_JSON" | jq -e '.domains' >/dev/null 2>&1; then
   echo "Invalid response or 404 (check API URL and that main-api is running)"
+  echo "URL was: ${API_URL}/api/domains/nawala-cron"
+  echo "Response (first 300 chars): $(echo "$DOMAINS_JSON" | head -c 300)"
   exit 1
 fi
 
