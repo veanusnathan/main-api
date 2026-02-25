@@ -27,6 +27,7 @@ import { RenewDomainDto } from './dtos/renew-domain.dto';
 import { NamecheapConfigDto } from './dtos/namecheap-config.dto';
 import { GetDomainsDto } from './dtos/get-domains.dto';
 import { NawalaApplyDto } from './dtos/nawala-apply.dto';
+import { Public } from '../auth/decorators/public.decorator';
 
 @ApiTags('Pendataan Domain')
 @Controller('domains')
@@ -112,18 +113,20 @@ export class DomainController {
   }
 
   @Get('nawala-cron')
+  @Public()
   @ApiOperation({
     summary: 'Get used domain names for Nawala cron script',
-    description: 'Returns used domain names. Used by scripts/nawala-cron.sh.',
+    description: 'Returns used domain names. Used by scripts/nawala-cron.sh. Public so the cron script can call without a token.',
   })
   async getNawalaCronDomains() {
     return { domains: await this.domainService.getUsedDomainNames() };
   }
 
   @Post('nawala-apply')
+  @Public()
   @ApiOperation({
     summary: 'Apply Nawala results from cron script',
-    description: 'Accepts Trust Positif results from scripts/nawala-cron.sh. Body: { results: [{ domain, blocked }] }.',
+    description: 'Accepts Trust Positif results from scripts/nawala-cron.sh. Body: { results: [{ domain, blocked }] }. Public so the cron script can call without a token.',
   })
   async applyNawalaFromCron(@Body() dto: NawalaApplyDto) {
     return this.domainService.applyNawalaResultsFromCron(dto.results);
