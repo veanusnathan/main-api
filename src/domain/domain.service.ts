@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { resolve as dnsResolve } from 'node:dns/promises';
 import { InjectRepository } from '@mikro-orm/nestjs';
 import { EntityRepository, wrap } from '@mikro-orm/core';
@@ -566,14 +566,29 @@ export class DomainService {
 
   /**
    * Refresh nawala (blocked) status by querying Trust Positif.
-   * Uses the script at scripts/nawala-cron.sh (repo path) when present so the button works when in-app curl fails; otherwise in-process.
+   * When the script exists, runs it via `at now` so it runs in atd's context (working network/VPN like cron).
+   * Otherwise runs in-process (or sync script if at is unavailable).
    */
-  async refreshNawala(): Promise<{ checked: number; updated: number }> {
+  async refreshNawala(): Promise<{ checked: number; updated: number; started?: boolean }> {
     const scriptFromDir = join(__dirname, '..', '..', 'scripts', 'nawala-cron.sh');
     const scriptFromCwd = join(process.cwd(), 'scripts', 'nawala-cron.sh');
     const scriptPath = existsSync(scriptFromDir) ? scriptFromDir : existsSync(scriptFromCwd) ? scriptFromCwd : null;
     if (scriptPath) {
-      this.logger.log(`Refresh Nawala: running script at ${scriptPath}`);
+      const apiUrl = process.env.NAWALA_CRON_API_URL?.trim() || 'http://127.0.0.1:3000';
+      const appRoot = dirname(dirname(scriptPath));
+      const atCmd = `cd ${appRoot} && NAWALA_CRON_API_URL=${apiUrl} ${scriptPath}\n`;
+      const atResult = spawnSync('at', ['now'], {
+        encoding: 'utf-8',
+        input: atCmd,
+        timeout: 10_000,
+      });
+      if (atResult.status === 0 && !atResult.error) {
+        this.logger.log(`Refresh Nawala: scheduled via at now (script at ${scriptPath})`);
+        return { checked: 0, updated: 0, started: true };
+      }
+      this.logger.log(
+        `Refresh Nawala: at not available (${atResult.status ?? atResult.error?.message}), running script sync`,
+      );
       const start = Date.now();
       const out = this.runNawalaCronScript(scriptPath);
       this.logger.log(`Refresh Nawala: script finished in ${Date.now() - start}ms`);
