@@ -582,14 +582,26 @@ export class DomainService {
     const result = spawnSync(scriptPath, [], {
       encoding: 'utf-8',
       env: { ...process.env, NAWALA_CRON_API_URL: apiUrl } as NodeJS.ProcessEnv,
-      timeout: 120_000,
+      timeout: 300_000,
       maxBuffer: 2 * 1024 * 1024,
     });
     const stdout = result.stdout ?? '';
     const stderr = (result.stderr ?? '').trim();
-    if (result.status !== 0) {
-      this.logger.error(`Nawala script failed: status=${result.status} stderr=${stderr.slice(0, 500)}`);
-      const msg = stderr || stdout.slice(0, 300) || `Script exited with code ${result.status}`;
+
+    if (result.error) {
+      this.logger.error(`Nawala script spawn failed: ${result.error.message}`);
+      throw new Error(`Nawala script could not run: ${result.error.message}. Check that scripts/nawala-cron.sh exists and is executable.`);
+    }
+    if (result.status !== 0 || result.signal) {
+      const detail =
+        result.signal === 'SIGKILL'
+          ? 'Script was killed (likely timed out after 5 minutes). Check VPN and Trust Positif reachability.'
+          : result.signal
+            ? `Script killed by ${result.signal}.`
+            : `Script exited with code ${result.status}.`;
+      const outSnippet = [stderr, stdout].filter(Boolean).join('\n').slice(0, 400);
+      this.logger.error(`Nawala script failed: ${detail} stderr=${stderr.slice(0, 500)}`);
+      const msg = outSnippet ? `${detail} Output: ${outSnippet}` : detail;
       throw new Error(`Nawala script failed: ${msg}`);
     }
     const match = stdout.match(/NAWALA_APPLY_RESULT=(.+)/m);
