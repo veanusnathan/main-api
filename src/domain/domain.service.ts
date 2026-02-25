@@ -579,23 +579,31 @@ export class DomainService {
   /** Run the nawala cron script and return { checked, updated }. Script must echo NAWALA_APPLY_RESULT=<json> on success. */
   private runNawalaCronScript(scriptPath: string): { checked: number; updated: number } {
     const apiUrl = process.env.NAWALA_CRON_API_URL?.trim() || 'http://127.0.0.1:3000';
+    const timeoutMs = 600_000; // 10 minutes for many domains / slow Trust Positif
     const result = spawnSync(scriptPath, [], {
       encoding: 'utf-8',
       env: { ...process.env, NAWALA_CRON_API_URL: apiUrl } as NodeJS.ProcessEnv,
-      timeout: 300_000,
+      timeout: timeoutMs,
       maxBuffer: 2 * 1024 * 1024,
     });
     const stdout = result.stdout ?? '';
     const stderr = (result.stderr ?? '').trim();
 
     if (result.error) {
+      const err = result.error as NodeJS.ErrnoException;
+      const isTimeout = err?.code === 'ETIMEDOUT';
       this.logger.error(`Nawala script spawn failed: ${result.error.message}`);
+      if (isTimeout) {
+        throw new Error(
+          `Nawala script did not finish within ${timeoutMs / 60_000} minutes. With many domains or slow VPN it can take a long time. Run the script by hand (./scripts/nawala-cron.sh) or use cron; the button may time out.`,
+        );
+      }
       throw new Error(`Nawala script could not run: ${result.error.message}. Check that scripts/nawala-cron.sh exists and is executable.`);
     }
     if (result.status !== 0 || result.signal) {
       const detail =
         result.signal === 'SIGKILL'
-          ? 'Script was killed (likely timed out after 5 minutes). Check VPN and Trust Positif reachability.'
+          ? `Script was killed (e.g. timed out). Check VPN and Trust Positif reachability.`
           : result.signal
             ? `Script killed by ${result.signal}.`
             : `Script exited with code ${result.status}.`;

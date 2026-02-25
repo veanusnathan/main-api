@@ -4,7 +4,7 @@
 # then POSTs results to main-api. Deploy with main-api via git; run from crontab.
 #
 # Env (set in crontab or when running):
-#   NAWALA_CRON_API_URL  (optional) - main-api base URL (default http://127.0.0.1)
+#   NAWALA_CRON_API_URL  (optional) - main-api base URL (default http://127.0.0.1:3000)
 #   TRUST_POSITIF_BASE   (optional) - Trust Positif URL (default https://182.23.79.198)
 #   TRUST_POSITIF_HOST   (optional) - Host header (default trustpositif.komdigi.go.id)
 #
@@ -12,7 +12,7 @@
 #   0 */6 * * * /var/app/main-api/scripts/nawala-cron.sh >> /var/log/nawala-cron.log 2>&1
 
 set -e
-API_URL="${NAWALA_CRON_API_URL:-http://127.0.0.1}"
+API_URL="${NAWALA_CRON_API_URL:-http://127.0.0.1:3000}"
 TP_BASE="${TRUST_POSITIF_BASE:-https://182.23.79.198}"
 TP_HOST="${TRUST_POSITIF_HOST:-trustpositif.komdigi.go.id}"
 COOKIE_FILE="${TMPDIR:-/tmp}/trustpositif-cookies-cron-$$.txt"

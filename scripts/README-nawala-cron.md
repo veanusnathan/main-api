@@ -27,11 +27,11 @@ When the main-api process cannot reach Trust Positif (e.g. "Connection refused" 
    ```cron
    0 */6 * * * /var/app/main-api/scripts/nawala-cron.sh >> /var/log/nawala-cron.log 2>&1
    ```
-   If the API is not at `http://127.0.0.1`, set `NAWALA_CRON_API_URL` (e.g. `http://127.0.0.1:3000`).
+   If the API is not at `http://127.0.0.1:3000`, set `NAWALA_CRON_API_URL` (e.g. `http://127.0.0.1:4000`).
 
 ## Env vars (optional)
 
-- `NAWALA_CRON_API_URL` – main-api base URL (default `http://127.0.0.1`)
+- `NAWALA_CRON_API_URL` – main-api base URL (default `http://127.0.0.1:3000`)
 - `TRUST_POSITIF_BASE` – Trust Positif URL (default `https://182.23.79.198`)
 - `TRUST_POSITIF_HOST` – Host header (default `trustpositif.komdigi.go.id`)
 
