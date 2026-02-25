@@ -125,20 +125,37 @@ export class TrustPositifService {
     const cookieFile = join(tmpdir(), `trustpositif-cookies-${process.pid}.txt`);
     const spawnOpts = { encoding: 'utf-8' as const, maxBuffer: 2 * 1024 * 1024, timeout: 35000 };
     const curlPath = process.env.TRUST_POSITIF_CURL_PATH?.trim() || 'curl';
-    const baseArgs = ['-s', '-k', '--connect-timeout', '30', ...(iface ? ['--interface', iface] : []), '-H', `Host: ${TRUST_POSITIF_HOST}`];
+    const buildGetArgs = (withInterface: boolean) => [
+      '-s', '-k', '--connect-timeout', '30',
+      ...(withInterface && iface ? ['--interface', iface] : []),
+      '-H', `Host: ${TRUST_POSITIF_HOST}`,
+      '-c', cookieFile,
+      `${base}/`,
+    ];
     try {
-      const getArgs = [...baseArgs, '-c', cookieFile, `${base}/`];
-      const getResult = spawnSync(curlPath, getArgs, { ...spawnOpts, shell: false });
+      let useInterface = true;
+      let getArgs = buildGetArgs(useInterface);
+      let getResult = spawnSync(curlPath, getArgs, { ...spawnOpts, shell: false });
+      if (getResult.status !== 0 && iface) {
+        this.logger.warn(`Trust Positif curl GET with --interface failed (${getResult.status}), retrying without --interface`);
+        useInterface = false;
+        getArgs = buildGetArgs(useInterface);
+        getResult = spawnSync(curlPath, getArgs, { ...spawnOpts, shell: false });
+      }
       const html = getResult.stdout ?? '';
       if (getResult.status !== 0) {
         const stderr = (getResult.stderr ?? '').trim();
-        this.logger.error(`Trust Positif curl GET failed: status=${getResult.status} stderr=${stderr} stdout=${html.slice(0, 200)}`);
-        throw new Error(`Trust Positif curl GET failed: ${[getResult.status, stderr, html.slice(0, 100)].filter(Boolean).join(' | ')}`);
+        const verboseArgs = getArgs.filter((a) => a !== '-s').concat('-v');
+        const verboseResult = spawnSync(curlPath, verboseArgs, { ...spawnOpts, shell: false });
+        const verboseErr = (verboseResult.stderr ?? '').trim().slice(0, 500);
+        this.logger.error(`Trust Positif curl GET failed: status=${getResult.status} stderr=${stderr} verbose=${verboseErr}`);
+        throw new Error(`Trust Positif curl GET failed: ${[getResult.status, stderr, verboseErr.slice(0, 200)].filter(Boolean).join(' | ')}`);
       }
       const csrfToken = this.extractCsrfToken(html);
       const name = domains.join('\n');
       const body = `csrf_token=${encodeURIComponent(csrfToken)}&name=${encodeURIComponent(name)}`;
-      const postArgs = [...baseArgs, '-b', cookieFile, '-X', 'POST', '--data-raw', body, `${base}/Rest_server/getrecordsname_home`];
+      const postBaseArgs = ['-s', '-k', '--connect-timeout', '30', ...(useInterface && iface ? ['--interface', iface] : []), '-H', `Host: ${TRUST_POSITIF_HOST}`];
+      const postArgs = [...postBaseArgs, '-b', cookieFile, '-X', 'POST', '--data-raw', body, `${base}/Rest_server/getrecordsname_home`];
       const postResult = spawnSync(curlPath, postArgs, { ...spawnOpts, shell: false });
       const jsonOut = postResult.stdout ?? '';
       if (postResult.status !== 0) {
