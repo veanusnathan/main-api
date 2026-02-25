@@ -2,7 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, IsIn, IsInt, Min, IsBoolean } from 'class-validator';
 import { Transform } from 'class-transformer';
 
-export type DomainSortBy = 'name' | 'expiryDate' | 'created' | 'status' | 'used';
+export type DomainSortBy = 'name' | 'expiryDate' | 'created' | 'status' | 'used' | 'updatedAt';
 export type DomainSortOrder = 'asc' | 'desc';
 export type DomainStatusFilter = 'all' | 'expired' | 'needsRenewal' | 'active';
 export type DomainUsedFilter = 'used' | 'notUsed' | 'all';
@@ -13,10 +13,10 @@ export type DomainPageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 export class GetDomainsDto {
   @ApiPropertyOptional({
     description: 'Sort by field',
-    enum: ['name', 'expiryDate', 'created', 'status', 'used'],
+    enum: ['name', 'expiryDate', 'created', 'status', 'used', 'updatedAt'],
   })
   @IsOptional()
-  @IsIn(['name', 'expiryDate', 'created', 'status', 'used'])
+  @IsIn(['name', 'expiryDate', 'created', 'status', 'used', 'updatedAt'])
   sortBy?: DomainSortBy;
 
   @ApiPropertyOptional({

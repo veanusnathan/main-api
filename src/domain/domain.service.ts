@@ -231,7 +231,9 @@ export class DomainService {
               ? { isExpired: orderDir, expiryDate: 'ASC' }
               : sortBy === 'used'
                 ? { isUsed: orderDir, name: 'ASC' }
-                : { name: 'ASC' };
+                : sortBy === 'updatedAt'
+                  ? { updatedAt: orderDir, name: 'ASC' }
+                  : { name: 'ASC' };
 
     const [list, total] = await this.domainRepo.findAndCount(where as never, {
       orderBy,
