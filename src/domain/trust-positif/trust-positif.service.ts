@@ -33,9 +33,12 @@ export class TrustPositifService {
   /** Request headers: add Host when using an IP base URL so TLS SNI and virtual host work. */
   private requestHeaders(extra?: Record<string, string>): Record<string, string> {
     const base = this.baseUrl;
-    const hostHeader =
-      base.startsWith('https://') && !base.includes(TRUST_POSITIF_HOST) ? { Host: TRUST_POSITIF_HOST } : {};
-    return { ...this.headers, ...hostHeader, ...extra };
+    const out: Record<string, string> = { ...this.headers };
+    if (base.startsWith('https://') && !base.includes(TRUST_POSITIF_HOST)) {
+      out.Host = TRUST_POSITIF_HOST;
+    }
+    if (extra) Object.assign(out, extra);
+    return out;
   }
 
   /** Extract cookie string from Set-Cookie headers for next request */
