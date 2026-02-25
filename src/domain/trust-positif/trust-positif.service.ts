@@ -6,9 +6,11 @@ import * as https from 'node:https';
 const TRUST_POSITIF_HOST = 'trustpositif.komdigi.go.id';
 const TRUST_POSITIF_BASE_DEFAULT = `https://${TRUST_POSITIF_HOST}`;
 
-/** HTTPS agent that uses TRUST_POSITIF_HOST for SNI when connecting by IP so certificate verification passes. */
+/** HTTPS agent when connecting by IP: SNI = hostname (so cert verifies), IPv4 only, no keep-alive (use current routing). */
 const trustPositifHttpsAgent = new https.Agent({
   servername: TRUST_POSITIF_HOST,
+  family: 4,
+  keepAlive: false,
 });
 
 export interface TrustPositifResult {
