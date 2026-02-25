@@ -126,7 +126,7 @@ export class TrustPositifService {
     const spawnOpts = { encoding: 'utf-8' as const, maxBuffer: 2 * 1024 * 1024, timeout: 35000 };
     const curlPath = process.env.TRUST_POSITIF_CURL_PATH?.trim() || 'curl';
     const buildGetArgs = (withInterface: boolean) => [
-      '-s', '-k', '--connect-timeout', '30',
+      '-4', '-s', '-k', '--connect-timeout', '30',
       ...(withInterface && iface ? ['--interface', iface] : []),
       '-H', `Host: ${TRUST_POSITIF_HOST}`,
       '-c', cookieFile,
@@ -154,7 +154,7 @@ export class TrustPositifService {
       const csrfToken = this.extractCsrfToken(html);
       const name = domains.join('\n');
       const body = `csrf_token=${encodeURIComponent(csrfToken)}&name=${encodeURIComponent(name)}`;
-      const postBaseArgs = ['-s', '-k', '--connect-timeout', '30', ...(useInterface && iface ? ['--interface', iface] : []), '-H', `Host: ${TRUST_POSITIF_HOST}`];
+      const postBaseArgs = ['-4', '-s', '-k', '--connect-timeout', '30', ...(useInterface && iface ? ['--interface', iface] : []), '-H', `Host: ${TRUST_POSITIF_HOST}`];
       const postArgs = [...postBaseArgs, '-b', cookieFile, '-X', 'POST', '--data-raw', body, `${base}/Rest_server/getrecordsname_home`];
       const postResult = spawnSync(curlPath, postArgs, { ...spawnOpts, shell: false });
       const jsonOut = postResult.stdout ?? '';

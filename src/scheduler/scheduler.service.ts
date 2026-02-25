@@ -20,9 +20,12 @@ export class SchedulerService {
     }
   }
 
-  /** Run every 15 minutes: refresh nawala (Trust Positif) status for used domains */
+  /** Run every 15 minutes: refresh nawala (Trust Positif) status for used domains. Set TRUST_POSITIF_SKIP_SCHEDULED=1 to disable (e.g. when VPN from this process fails). */
   @Cron('*/15 * * * *')
   async handleNawalaRefresh() {
+    if (process.env.TRUST_POSITIF_SKIP_SCHEDULED === '1' || process.env.TRUST_POSITIF_SKIP_SCHEDULED === 'true') {
+      return;
+    }
     this.logger.log('Running scheduled nawala refresh');
     try {
       const result = await this.domainService.refreshNawala();
