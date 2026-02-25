@@ -569,7 +569,8 @@ export class DomainService {
    * Uses the script at scripts/nawala-cron.sh (repo path) when present so the button works when in-app curl fails; otherwise in-process.
    */
   async refreshNawala(): Promise<{ checked: number; updated: number }> {
-    const scriptPath = join(process.cwd(), 'scripts', 'nawala-cron.sh');
+    // Resolve script relative to app root (dist/domain -> ../..) so it works regardless of process.cwd() (e.g. PM2)
+    const scriptPath = join(__dirname, '..', '..', 'scripts', 'nawala-cron.sh');
     if (existsSync(scriptPath)) {
       return this.runNawalaCronScript(scriptPath);
     }
