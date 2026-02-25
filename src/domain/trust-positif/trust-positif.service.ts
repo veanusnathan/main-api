@@ -2,7 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 
-const TRUST_POSITIF_BASE = 'https://trustpositif.komdigi.go.id';
+const TRUST_POSITIF_HOST = 'trustpositif.komdigi.go.id';
+const TRUST_POSITIF_BASE_DEFAULT = `https://${TRUST_POSITIF_HOST}`;
 
 export interface TrustPositifResult {
   domain: string;
@@ -13,7 +14,7 @@ export interface TrustPositifResult {
 @Injectable()
 export class TrustPositifService {
   private readonly logger = new Logger(TrustPositifService.name);
-  private readonly headers = {
+  private readonly headers: Record<string, string> = {
     'User-Agent':
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -21,6 +22,21 @@ export class TrustPositifService {
   };
 
   constructor(private readonly http: HttpService) {}
+
+  /** Base URL for Trust Positif. If TRUST_POSITIF_BASE_URL is set (e.g. https://182.23.79.198), use it to avoid DNS lookup on the VPS. */
+  private get baseUrl(): string {
+    const url = process.env.TRUST_POSITIF_BASE_URL?.trim();
+    if (url) return url.replace(/\/$/, '');
+    return TRUST_POSITIF_BASE_DEFAULT;
+  }
+
+  /** Request headers: add Host when using an IP base URL so TLS SNI and virtual host work. */
+  private requestHeaders(extra?: Record<string, string>): Record<string, string> {
+    const base = this.baseUrl;
+    const hostHeader =
+      base.startsWith('https://') && !base.includes(TRUST_POSITIF_HOST) ? { Host: TRUST_POSITIF_HOST } : {};
+    return { ...this.headers, ...hostHeader, ...extra };
+  }
 
   /** Extract cookie string from Set-Cookie headers for next request */
   private getCookieHeader(response: { headers: { 'set-cookie'?: string | string[] } }): string | undefined {
@@ -62,11 +78,12 @@ export class TrustPositifService {
    * Fails on GET failure, non-2xx POST, missing/invalid response, or missing rows for requested domains.
    */
   private async checkDomainsTrustPositif(domains: string[]): Promise<TrustPositifResult[]> {
+    const base = this.baseUrl;
     let getRes;
     try {
       getRes = await firstValueFrom(
-        this.http.get<string>(`${TRUST_POSITIF_BASE}/`, {
-          headers: this.headers,
+        this.http.get<string>(`${base}/`, {
+          headers: this.requestHeaders(),
           responseType: 'text',
           timeout: 30000,
           maxRedirects: 5,
@@ -90,10 +107,11 @@ export class TrustPositifService {
     }).toString();
 
     const postHeaders: Record<string, string> = {
-      'User-Agent': this.headers['User-Agent'],
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json',
-      Referer: `${TRUST_POSITIF_BASE}/`,
+      ...this.requestHeaders({
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+        Referer: `${base}/`,
+      }),
     };
     if (cookieHeader) {
       postHeaders['Cookie'] = cookieHeader;
@@ -103,7 +121,7 @@ export class TrustPositifService {
     try {
       postRes = await firstValueFrom(
         this.http.post<{ values?: Array<Record<string, unknown>> }>(
-          `${TRUST_POSITIF_BASE}/Rest_server/getrecordsname_home`,
+          `${base}/Rest_server/getrecordsname_home`,
           body,
           {
             headers: postHeaders,
