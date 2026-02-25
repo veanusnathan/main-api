@@ -114,22 +114,19 @@ export class DomainController {
   @Get('nawala-cron')
   @ApiOperation({
     summary: 'Get used domain names for Nawala cron script',
-    description: 'Returns used domain names when ?secret= matches NAWALA_CRON_SECRET. Used by scripts/nawala-cron.sh.',
+    description: 'Returns used domain names. Used by scripts/nawala-cron.sh.',
   })
-  async getNawalaCronDomains(@Query('secret') secret: string | undefined) {
-    const expected = process.env.NAWALA_CRON_SECRET?.trim();
-    if (!expected) throw new NotFoundException('Not found');
-    if (!secret || secret !== expected) throw new NotFoundException('Not found');
+  async getNawalaCronDomains() {
     return { domains: await this.domainService.getUsedDomainNames() };
   }
 
   @Post('nawala-apply')
   @ApiOperation({
     summary: 'Apply Nawala results from cron script',
-    description: 'Accepts Trust Positif results from scripts/nawala-cron.sh. Body: { secret, results: [{ domain, blocked }] }.',
+    description: 'Accepts Trust Positif results from scripts/nawala-cron.sh. Body: { results: [{ domain, blocked }] }.',
   })
   async applyNawalaFromCron(@Body() dto: NawalaApplyDto) {
-    return this.domainService.applyNawalaResultsFromCron(dto.results, dto.secret);
+    return this.domainService.applyNawalaResultsFromCron(dto.results);
   }
 
   @Get('namecheap/list')

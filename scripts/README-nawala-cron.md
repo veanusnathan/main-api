@@ -4,11 +4,7 @@ When the main-api process cannot reach Trust Positif (e.g. "Connection refused" 
 
 ## Setup (on the VPS)
 
-1. **In main-api `.env`** add (use a long random string):
-   ```env
-   NAWALA_CRON_SECRET=your-secret
-   ```
-   Optional: to stop the in-app scheduled Nawala job from failing every 15 minutes:
+1. **Optional:** To stop the in-app scheduled Nawala job from failing every 15 minutes, add to main-api `.env`:
    ```env
    TRUST_POSITIF_SKIP_SCHEDULED=1
    ```
@@ -23,13 +19,13 @@ When the main-api process cannot reach Trust Positif (e.g. "Connection refused" 
 
 4. **Run once by hand** (VPN must be up):
    ```bash
-   NAWALA_CRON_SECRET=your-secret /var/app/main-api/scripts/nawala-cron.sh
+   /var/app/main-api/scripts/nawala-cron.sh
    ```
    You should see: `Nawala cron: checked N domains, apply response: {"checked":...,"updated":...}`.
 
 5. **Add to crontab** (e.g. every 6 hours). Run `crontab -e`:
    ```cron
-   0 */6 * * * NAWALA_CRON_SECRET=your-secret /var/app/main-api/scripts/nawala-cron.sh >> /var/log/nawala-cron.log 2>&1
+   0 */6 * * * /var/app/main-api/scripts/nawala-cron.sh >> /var/log/nawala-cron.log 2>&1
    ```
    If the API is not at `http://127.0.0.1`, set `NAWALA_CRON_API_URL` (e.g. `http://127.0.0.1:3000`).
 

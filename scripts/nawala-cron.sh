@@ -4,13 +4,12 @@
 # then POSTs results to main-api. Deploy with main-api via git; run from crontab.
 #
 # Env (set in crontab or when running):
-#   NAWALA_CRON_SECRET   (required) - same as main-api .env NAWALA_CRON_SECRET
 #   NAWALA_CRON_API_URL  (optional) - main-api base URL (default http://127.0.0.1)
 #   TRUST_POSITIF_BASE   (optional) - Trust Positif URL (default https://182.23.79.198)
 #   TRUST_POSITIF_HOST   (optional) - Host header (default trustpositif.komdigi.go.id)
 #
 # Example crontab (every 6 hours):
-#   0 */6 * * * NAWALA_CRON_SECRET=your-secret /var/app/main-api/scripts/nawala-cron.sh >> /var/log/nawala-cron.log 2>&1
+#   0 */6 * * * /var/app/main-api/scripts/nawala-cron.sh >> /var/log/nawala-cron.log 2>&1
 
 set -e
 API_URL="${NAWALA_CRON_API_URL:-http://127.0.0.1}"
@@ -19,12 +18,7 @@ TP_HOST="${TRUST_POSITIF_HOST:-trustpositif.komdigi.go.id}"
 COOKIE_FILE="${TMPDIR:-/tmp}/trustpositif-cookies-cron-$$.txt"
 BATCH_SIZE=50
 
-if [ -z "$NAWALA_CRON_SECRET" ]; then
-  echo "NAWALA_CRON_SECRET not set"
-  exit 1
-fi
-
-DOMAINS_JSON=$(curl -sS "${API_URL}/api/domains/nawala-cron?secret=${NAWALA_CRON_SECRET}" || true)
+DOMAINS_JSON=$(curl -sS "${API_URL}/api/domains/nawala-cron" || true)
 if [ -z "$DOMAINS_JSON" ]; then
   echo "Failed to fetch domains or 404"
   exit 1
@@ -36,7 +30,7 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 if ! echo "$DOMAINS_JSON" | jq -e '.domains' >/dev/null 2>&1; then
-  echo "Invalid response or 404 (check NAWALA_CRON_SECRET and API)"
+  echo "Invalid response or 404 (check API URL and that main-api is running)"
   exit 1
 fi
 
@@ -99,7 +93,7 @@ for (( i=0; i < ${#DOMAINS_ARR[@]}; i += BATCH_SIZE )); do
   TOTAL=$((TOTAL + ${#BATCH[@]}))
 done
 
-PAYLOAD=$(jq -n -c --arg secret "$NAWALA_CRON_SECRET" --argjson results "$RESULTS" '{ secret: $secret, results: $results }')
+PAYLOAD=$(jq -n -c --argjson results "$RESULTS" '{ results: $results }')
 HTTP=$(curl -sS -w '%{http_code}' -o /tmp/nawala-apply-$$.out -X POST \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD" "${API_URL}/api/domains/nawala-apply" 2>&1)

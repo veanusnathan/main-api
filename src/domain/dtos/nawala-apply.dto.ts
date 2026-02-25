@@ -13,10 +13,6 @@ class NawalaResultItemDto {
 }
 
 export class NawalaApplyDto {
-  @ApiProperty({ description: 'Must match NAWALA_CRON_SECRET' })
-  @IsString()
-  secret: string;
-
   @ApiProperty({ type: [NawalaResultItemDto] })
   @IsArray()
   @ValidateNested({ each: true })

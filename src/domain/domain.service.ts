@@ -1,5 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { resolve as dnsResolve } from 'node:dns/promises';
 import { InjectRepository } from '@mikro-orm/nestjs';
 import { EntityRepository, wrap } from '@mikro-orm/core';
@@ -564,12 +566,11 @@ export class DomainService {
 
   /**
    * Refresh nawala (blocked) status by querying Trust Positif.
-   * If NAWALA_CRON_SCRIPT_PATH is set, runs the cron script (so the button works when in-app curl fails) and returns its result.
-   * Otherwise uses Node or in-app curl. Only domains marked as "used" are checked.
+   * Uses the script at scripts/nawala-cron.sh (repo path) when present so the button works when in-app curl fails; otherwise in-process.
    */
   async refreshNawala(): Promise<{ checked: number; updated: number }> {
-    const scriptPath = process.env.NAWALA_CRON_SCRIPT_PATH?.trim();
-    if (scriptPath) {
+    const scriptPath = join(process.cwd(), 'scripts', 'nawala-cron.sh');
+    if (existsSync(scriptPath)) {
       return this.runNawalaCronScript(scriptPath);
     }
     return this.refreshNawalaInProcess();
@@ -577,14 +578,10 @@ export class DomainService {
 
   /** Run the nawala cron script and return { checked, updated }. Script must echo NAWALA_APPLY_RESULT=<json> on success. */
   private runNawalaCronScript(scriptPath: string): Promise<{ checked: number; updated: number }> {
-    const secret = process.env.NAWALA_CRON_SECRET?.trim();
-    if (!secret) {
-      throw new Error('NAWALA_CRON_SCRIPT_PATH is set but NAWALA_CRON_SECRET is missing');
-    }
     const apiUrl = process.env.NAWALA_CRON_API_URL?.trim() || 'http://127.0.0.1';
     const result = spawnSync(scriptPath, [], {
       encoding: 'utf-8',
-      env: { ...process.env, NAWALA_CRON_SECRET: secret, NAWALA_CRON_API_URL: apiUrl } as NodeJS.ProcessEnv,
+      env: { ...process.env, NAWALA_CRON_API_URL: apiUrl } as NodeJS.ProcessEnv,
       timeout: 120_000,
       maxBuffer: 2 * 1024 * 1024,
     });
@@ -669,14 +666,10 @@ export class DomainService {
     return used.map((d) => d.name);
   }
 
-  /** Used by nawala cron script: apply Trust Positif results. Secret must match NAWALA_CRON_SECRET. */
+  /** Used by nawala cron script: apply Trust Positif results. */
   async applyNawalaResultsFromCron(
     results: Array<{ domain: string; blocked: boolean }>,
-    secret: string,
   ): Promise<{ checked: number; updated: number }> {
-    const expected = process.env.NAWALA_CRON_SECRET?.trim();
-    if (!expected) throw new NotFoundException('Nawala cron not configured (NAWALA_CRON_SECRET not set)');
-    if (secret !== expected) throw new NotFoundException('Invalid secret');
     if (results.length === 0) return { checked: 0, updated: 0 };
 
     const forkedEm = this.domainRepo.getEntityManager().fork();
