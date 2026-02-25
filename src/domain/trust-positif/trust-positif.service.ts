@@ -2,6 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import * as https from 'node:https';
+import * as tls from 'node:tls';
+import { execSync } from 'node:child_process';
+import { unlinkSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const TRUST_POSITIF_HOST = 'trustpositif.komdigi.go.id';
 const TRUST_POSITIF_BASE_DEFAULT = `https://${TRUST_POSITIF_HOST}`;
@@ -31,7 +36,7 @@ export class TrustPositifService {
     return TRUST_POSITIF_BASE_DEFAULT;
   }
 
-  /** When connecting by IP, use an agent with SNI=hostname and optional localAddress to force traffic via VPN. */
+  /** When connecting by IP, use an agent that binds to VPN source IP so traffic goes via the tunnel. */
   private _trustPositifAgent: https.Agent | null = null;
   private get httpsAgent(): https.Agent | undefined {
     const base = this.baseUrl;
@@ -39,10 +44,19 @@ export class TrustPositifService {
     if (this._trustPositifAgent) return this._trustPositifAgent;
     const vpnSource = process.env.TRUST_POSITIF_VPN_SOURCE_IP?.trim();
     this._trustPositifAgent = new https.Agent({
-      servername: TRUST_POSITIF_HOST,
-      family: 4,
       keepAlive: false,
-      ...(vpnSource && { localAddress: vpnSource }),
+      createConnection(options: tls.ConnectionOptions, callback: (err: Error | null, stream?: tls.TLSSocket) => void) {
+        const tlsOpts: tls.ConnectionOptions = {
+          host: options.host ?? options.servername,
+          port: options.port ?? 443,
+          servername: TRUST_POSITIF_HOST,
+          family: 4,
+          ...(vpnSource && { localAddress: vpnSource }),
+        };
+        const sock = tls.connect(tlsOpts);
+        sock.once('secure', () => callback(null, sock));
+        sock.once('error', (e) => callback(e));
+      },
     });
     return this._trustPositifAgent;
   }
@@ -85,12 +99,60 @@ export class TrustPositifService {
 
   /**
    * Check domain block status by simulating a user entering domain names on Trust Positif.
-   * This is the only method used: GET homepage (CSRF + cookies), then POST domain names to getrecordsname_home.
-   * No fallback or alternative API. If Trust Positif is unreachable or returns invalid data, the call fails.
+   * If TRUST_POSITIF_USE_CURL=1, use curl (works when Node cannot use the VPN path).
    */
   async checkDomains(domains: string[]): Promise<TrustPositifResult[]> {
     if (domains.length === 0) return [];
+    if (process.env.TRUST_POSITIF_USE_CURL === '1' || process.env.TRUST_POSITIF_USE_CURL === 'true') {
+      return this.checkDomainsViaCurl(domains);
+    }
     return this.checkDomainsTrustPositif(domains);
+  }
+
+  /**
+   * Use curl for Trust Positif when Node cannot reach the site (e.g. VPN routing quirk).
+   * Requires TRUST_POSITIF_BASE_URL (IP), optional TRUST_POSITIF_VPN_SOURCE_IP for --interface.
+   */
+  private checkDomainsViaCurl(domains: string[]): TrustPositifResult[] {
+    const base = this.baseUrl;
+    if (base.includes(TRUST_POSITIF_HOST)) {
+      throw new Error('TRUST_POSITIF_USE_CURL requires TRUST_POSITIF_BASE_URL to an IP (e.g. https://182.23.79.198)');
+    }
+    const iface = process.env.TRUST_POSITIF_VPN_SOURCE_IP?.trim();
+    const ifaceArg = iface ? `--interface ${iface}` : '';
+    const prefix = base.replace(/^https:\/\//, '');
+    const cookieFile = join(tmpdir(), `trustpositif-cookies-${process.pid}.txt`);
+    try {
+      const getCmd = `curl -s -k ${ifaceArg} -H "Host: ${TRUST_POSITIF_HOST}" -c "${cookieFile}" "${base}/"`;
+      const html = execSync(getCmd, { encoding: 'utf-8', maxBuffer: 2 * 1024 * 1024 });
+      const csrfToken = this.extractCsrfToken(html);
+      const name = domains.join('\n');
+      const body = `csrf_token=${encodeURIComponent(csrfToken)}&name=${encodeURIComponent(name)}`;
+      const postCmd = `curl -s -k ${ifaceArg} -H "Host: ${TRUST_POSITIF_HOST}" -b "${cookieFile}" -X POST --data-raw ${JSON.stringify(body)} "${base}/Rest_server/getrecordsname_home"`;
+      const jsonOut = execSync(postCmd, { encoding: 'utf-8', maxBuffer: 2 * 1024 * 1024 });
+      const data = JSON.parse(jsonOut) as { values?: Array<Record<string, unknown>> };
+      const values = data?.values;
+      if (!Array.isArray(values)) {
+        throw new Error('Trust Positif response invalid (no values array)');
+      }
+      const returnedDomains = new Set(
+        values.map((row) => String((row.Domain ?? row.domain ?? '') as string).trim().toLowerCase()),
+      );
+      const requestedSet = new Set(domains.map((d) => d.trim().toLowerCase()));
+      const missing = [...requestedSet].filter((d) => d && !returnedDomains.has(d));
+      if (missing.length > 0) {
+        throw new Error(`Trust Positif did not return results for all requested domains (missing: ${missing.length})`);
+      }
+      const BLOCKED_VALUES = new Set(['ada', 'blocked', 'terblokir', 'yes', '1']);
+      return values.map((row) => {
+        const domain = String((row.Domain ?? row.domain ?? '') as string).trim();
+        const status = String((row.Status ?? row.status ?? '') as string).trim().toLowerCase();
+        const blocked = BLOCKED_VALUES.has(status);
+        return { domain, blocked };
+      });
+    } finally {
+      if (existsSync(cookieFile)) unlinkSync(cookieFile);
+    }
   }
 
   /**
