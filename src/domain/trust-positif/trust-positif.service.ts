@@ -127,28 +127,46 @@ export class TrustPositifService {
     const execOpts = { encoding: 'utf-8' as const, maxBuffer: 2 * 1024 * 1024, timeout: 35000 };
     const curl = process.env.TRUST_POSITIF_CURL_PATH?.trim() || 'curl';
     try {
-      const getCmd = `${curl} -s -k --connect-timeout 30 ${ifaceArg} -H "Host: ${TRUST_POSITIF_HOST}" -c "${cookieFile}" "${base}/"`;
+      const getCmd = `${curl} -s -k --connect-timeout 30 ${ifaceArg} -H "Host: ${TRUST_POSITIF_HOST}" -c "${cookieFile}" "${base}/" 2>&1`;
       let html: string;
       try {
-        html = execSync(getCmd, execOpts);
+        html = execSync(getCmd, { ...execOpts, stdio: ['pipe', 'pipe', 'pipe'] });
       } catch (curlErr: unknown) {
-        const e = curlErr as { status?: number; stderr?: Buffer | string; stdout?: Buffer | string; message?: string };
-        const stderr = e.stderr != null ? String(e.stderr).trim() : '';
-        const stdout = e.stdout != null ? String(e.stdout).trim() : '';
+        const e = curlErr as {
+          status?: number;
+          stderr?: Buffer | string;
+          stdout?: Buffer | string;
+          message?: string;
+          output?: (Buffer | string)[];
+        };
+        const stderr =
+          e.stderr != null ? String(e.stderr).trim() : Array.isArray(e.output) && e.output[2] != null ? String(e.output[2]).trim() : '';
+        const stdout =
+          e.stdout != null ? String(e.stdout).trim() : Array.isArray(e.output) && e.output[1] != null ? String(e.output[1]).trim() : '';
+        this.logger.error(`Trust Positif curl GET failed: status=${e.status} stderr=${stderr} stdout=${stdout.slice(0, 200)}`);
         const detail = [e.message, stderr, stdout].filter(Boolean).join(' | ');
         throw new Error(`Trust Positif curl GET failed: ${detail}`);
       }
       const csrfToken = this.extractCsrfToken(html);
       const name = domains.join('\n');
       const body = `csrf_token=${encodeURIComponent(csrfToken)}&name=${encodeURIComponent(name)}`;
-      const postCmd = `${curl} -s -k --connect-timeout 30 ${ifaceArg} -H "Host: ${TRUST_POSITIF_HOST}" -b "${cookieFile}" -X POST --data-raw ${JSON.stringify(body)} "${base}/Rest_server/getrecordsname_home"`;
+      const postCmd = `${curl} -s -k --connect-timeout 30 ${ifaceArg} -H "Host: ${TRUST_POSITIF_HOST}" -b "${cookieFile}" -X POST --data-raw ${JSON.stringify(body)} "${base}/Rest_server/getrecordsname_home" 2>&1`;
       let jsonOut: string;
       try {
-        jsonOut = execSync(postCmd, execOpts);
+        jsonOut = execSync(postCmd, { ...execOpts, stdio: ['pipe', 'pipe', 'pipe'] });
       } catch (curlErr: unknown) {
-        const e = curlErr as { status?: number; stderr?: Buffer | string; stdout?: Buffer | string; message?: string };
-        const stderr = e.stderr != null ? String(e.stderr).trim() : '';
-        const stdout = e.stdout != null ? String(e.stdout).trim() : '';
+        const e = curlErr as {
+          status?: number;
+          stderr?: Buffer | string;
+          stdout?: Buffer | string;
+          message?: string;
+          output?: (Buffer | string)[];
+        };
+        const stderr =
+          e.stderr != null ? String(e.stderr).trim() : Array.isArray(e.output) && e.output[2] != null ? String(e.output[2]).trim() : '';
+        const stdout =
+          e.stdout != null ? String(e.stdout).trim() : Array.isArray(e.output) && e.output[1] != null ? String(e.output[1]).trim() : '';
+        this.logger.error(`Trust Positif curl POST failed: status=${e.status} stderr=${stderr} stdout=${stdout.slice(0, 200)}`);
         const detail = [e.message, stderr, stdout].filter(Boolean).join(' | ');
         throw new Error(`Trust Positif curl POST failed: ${detail}`);
       }
