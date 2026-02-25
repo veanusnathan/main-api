@@ -6,13 +6,6 @@ import * as https from 'node:https';
 const TRUST_POSITIF_HOST = 'trustpositif.komdigi.go.id';
 const TRUST_POSITIF_BASE_DEFAULT = `https://${TRUST_POSITIF_HOST}`;
 
-/** HTTPS agent when connecting by IP: SNI = hostname (so cert verifies), IPv4 only, no keep-alive (use current routing). */
-const trustPositifHttpsAgent = new https.Agent({
-  servername: TRUST_POSITIF_HOST,
-  family: 4,
-  keepAlive: false,
-});
-
 export interface TrustPositifResult {
   domain: string;
   /** true = blocked (Ada), false = not blocked (Tidak Ada) */
@@ -38,10 +31,20 @@ export class TrustPositifService {
     return TRUST_POSITIF_BASE_DEFAULT;
   }
 
-  /** When connecting by IP, use this agent so TLS SNI and cert verification use the hostname, not the IP. */
+  /** When connecting by IP, use an agent with SNI=hostname and optional localAddress to force traffic via VPN. */
+  private _trustPositifAgent: https.Agent | null = null;
   private get httpsAgent(): https.Agent | undefined {
     const base = this.baseUrl;
-    return base.startsWith('https://') && !base.includes(TRUST_POSITIF_HOST) ? trustPositifHttpsAgent : undefined;
+    if (!base.startsWith('https://') || base.includes(TRUST_POSITIF_HOST)) return undefined;
+    if (this._trustPositifAgent) return this._trustPositifAgent;
+    const vpnSource = process.env.TRUST_POSITIF_VPN_SOURCE_IP?.trim();
+    this._trustPositifAgent = new https.Agent({
+      servername: TRUST_POSITIF_HOST,
+      family: 4,
+      keepAlive: false,
+      ...(vpnSource && { localAddress: vpnSource }),
+    });
+    return this._trustPositifAgent;
   }
 
   /** Request headers: add Host when using an IP base URL so virtual host works. */
