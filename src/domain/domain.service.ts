@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { spawnSync } from 'node:child_process';
 import { resolve as dnsResolve } from 'node:dns/promises';
 import { InjectRepository } from '@mikro-orm/nestjs';
 import { EntityRepository, wrap } from '@mikro-orm/core';
@@ -563,10 +564,53 @@ export class DomainService {
 
   /**
    * Refresh nawala (blocked) status by querying Trust Positif.
-   * Only domains marked as "used" (isUsed: true) are checked. Uses Node or in-app curl (see TRUST_POSITIF_* env).
-   * Batch size 50 per request. Runs in a forked EM when called from scheduler.
+   * If NAWALA_CRON_SCRIPT_PATH is set, runs the cron script (so the button works when in-app curl fails) and returns its result.
+   * Otherwise uses Node or in-app curl. Only domains marked as "used" are checked.
    */
   async refreshNawala(): Promise<{ checked: number; updated: number }> {
+    const scriptPath = process.env.NAWALA_CRON_SCRIPT_PATH?.trim();
+    if (scriptPath) {
+      return this.runNawalaCronScript(scriptPath);
+    }
+    return this.refreshNawalaInProcess();
+  }
+
+  /** Run the nawala cron script and return { checked, updated }. Script must echo NAWALA_APPLY_RESULT=<json> on success. */
+  private runNawalaCronScript(scriptPath: string): Promise<{ checked: number; updated: number }> {
+    const secret = process.env.NAWALA_CRON_SECRET?.trim();
+    if (!secret) {
+      throw new Error('NAWALA_CRON_SCRIPT_PATH is set but NAWALA_CRON_SECRET is missing');
+    }
+    const apiUrl = process.env.NAWALA_CRON_API_URL?.trim() || 'http://127.0.0.1';
+    const result = spawnSync(scriptPath, [], {
+      encoding: 'utf-8',
+      env: { ...process.env, NAWALA_CRON_SECRET: secret, NAWALA_CRON_API_URL: apiUrl } as NodeJS.ProcessEnv,
+      timeout: 120_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    const stdout = result.stdout ?? '';
+    const stderr = (result.stderr ?? '').trim();
+    if (result.status !== 0) {
+      this.logger.error(`Nawala script failed: status=${result.status} stderr=${stderr.slice(0, 500)}`);
+      const msg = stderr || stdout.slice(0, 300) || `Script exited with code ${result.status}`;
+      throw new Error(`Nawala script failed: ${msg}`);
+    }
+    const match = stdout.match(/NAWALA_APPLY_RESULT=(.+)/m);
+    if (!match?.[1]) {
+      this.logger.error(`Nawala script did not output NAWALA_APPLY_RESULT. stdout=${stdout.slice(0, 300)}`);
+      throw new Error('Nawala script completed but did not output a result. Check server logs.');
+    }
+    try {
+      const parsed = JSON.parse(match[1].trim()) as { checked?: number; updated?: number };
+      return { checked: Number(parsed.checked) || 0, updated: Number(parsed.updated) || 0 };
+    } catch (e) {
+      this.logger.error(`Nawala script result parse error: ${e instanceof Error ? e.message : String(e)}`);
+      throw new Error('Nawala script returned invalid JSON result.');
+    }
+  }
+
+  /** In-process Trust Positif check (Node or in-app curl). */
+  private async refreshNawalaInProcess(): Promise<{ checked: number; updated: number }> {
     const forkedEm = this.domainRepo.getEntityManager().fork();
     const domainRepo = forkedEm.getRepository(Domain);
 
@@ -613,6 +657,51 @@ export class DomainService {
       );
     }
 
+    return { checked: usedDomains.length, updated };
+  }
+
+  /** Used by nawala cron script: return used domain names only. */
+  async getUsedDomainNames(): Promise<string[]> {
+    const used = await this.domainRepo.find(
+      { isUsed: true },
+      { orderBy: { name: 'ASC' }, fields: ['name'] },
+    );
+    return used.map((d) => d.name);
+  }
+
+  /** Used by nawala cron script: apply Trust Positif results. Secret must match NAWALA_CRON_SECRET. */
+  async applyNawalaResultsFromCron(
+    results: Array<{ domain: string; blocked: boolean }>,
+    secret: string,
+  ): Promise<{ checked: number; updated: number }> {
+    const expected = process.env.NAWALA_CRON_SECRET?.trim();
+    if (!expected) throw new NotFoundException('Nawala cron not configured (NAWALA_CRON_SECRET not set)');
+    if (secret !== expected) throw new NotFoundException('Invalid secret');
+    if (results.length === 0) return { checked: 0, updated: 0 };
+
+    const forkedEm = this.domainRepo.getEntityManager().fork();
+    const domainRepo = forkedEm.getRepository(Domain);
+    const resultsMap = new Map<string, boolean>();
+    for (const r of results) {
+      const key = r.domain.toLowerCase().trim();
+      resultsMap.set(key, r.blocked);
+      const withoutWww = key.replace(/^www\./, '');
+      if (withoutWww !== key) resultsMap.set(withoutWww, r.blocked);
+    }
+
+    const usedDomains = await domainRepo.find({ isUsed: true }, { orderBy: { name: 'ASC' } });
+    let updated = 0;
+    for (const domain of usedDomains) {
+      const key = domain.name.toLowerCase().trim();
+      const keyNoWww = key.replace(/^www\./, '');
+      const blocked = resultsMap.get(key) ?? resultsMap.get(keyNoWww);
+      if (blocked !== undefined && domain.nawala !== blocked) {
+        domain.nawala = blocked;
+        updated++;
+      }
+    }
+    await domainRepo.flush();
+    await this.recordSync(SyncServiceName.NawalaCheck, forkedEm);
     return { checked: usedDomains.length, updated };
   }
 
